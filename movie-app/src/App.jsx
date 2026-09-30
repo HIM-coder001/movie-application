@@ -21,7 +21,10 @@ const App = () => {
   const [movieList, setMovieList] = useState([]);
   const [trendingMovies, setTrendingMovies] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [selectedMovie, setSelectedMovie] = useState(null);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
   // Fetch trending movies for the top section
   const fetchTrendingMovies = async () => {
@@ -38,50 +41,62 @@ const App = () => {
     }
   };
 
-  // Fetch movies — either search results or popular discover list
-  const fetchMovies = useCallback(async (query = "") => {
-    setIsLoading(true);
+  // Fetch a specific page — append = true means Load More, false = fresh fetch
+  const fetchMovies = useCallback(async (query = "", pageNum = 1, append = false) => {
+    append ? setIsLoadingMore(true) : setIsLoading(true);
     setErrorMessage("");
 
     try {
       const endpoint = query
-        ? `${API_BASE_URL}/search/movie?query=${encodeURIComponent(query)}`
-        : `${API_BASE_URL}/discover/movie?sort_by=popularity.desc`;
+        ? `${API_BASE_URL}/search/movie?query=${encodeURIComponent(query)}&page=${pageNum}`
+        : `${API_BASE_URL}/discover/movie?sort_by=popularity.desc&page=${pageNum}`;
 
       const response = await fetch(endpoint, API_OPTIONS);
-
       if (!response.ok) throw new Error("Failed to fetch movies");
 
       const data = await response.json();
 
-      if (data.results?.length === 0) {
+      if (data.results?.length === 0 && !append) {
         setErrorMessage("No movies found. Try a different search term.");
         setMovieList([]);
         return;
       }
 
-      setMovieList(data.results || []);
+      // TMDB caps at 500 pages
+      setTotalPages(Math.min(data.total_pages, 500));
+      setMovieList((prev) => append ? [...prev, ...data.results] : data.results || []);
     } catch (error) {
       console.error("Error fetching movies:", error);
       setErrorMessage("Failed to fetch movies. Please try again later.");
     } finally {
       setIsLoading(false);
+      setIsLoadingMore(false);
     }
   }, []);
 
-  // Debounce search input so we don't fire on every keystroke
+  // When search term changes: reset to page 1 and do a fresh fetch
   useEffect(() => {
     const debounceTimer = setTimeout(() => {
-      fetchMovies(searchTerm);
+      setPage(1);
+      fetchMovies(searchTerm, 1, false);
     }, 500);
 
     return () => clearTimeout(debounceTimer);
   }, [searchTerm, fetchMovies]);
 
-  // Trending movies only need to load once
+  // Load more handler — increments page and appends results
+  const handleLoadMore = () => {
+    const nextPage = page + 1;
+    setPage(nextPage);
+    fetchMovies(searchTerm, nextPage, true);
+  };
+
+  // Trending only loads once
   useEffect(() => {
     fetchTrendingMovies();
   }, []);
+
+  const hasMore = page < totalPages;
 
   return (
     <main>
@@ -130,17 +145,39 @@ const App = () => {
             ) : errorMessage ? (
               <p className="text-red-500">{errorMessage}</p>
             ) : (
-              <ul>
-                {movieList.map((movie) => (
-                  <div
-                    key={movie.id}
-                    onClick={() => setSelectedMovie(movie)}
-                    className="cursor-pointer"
-                  >
-                    <MovieCard movie={movie} />
+              <>
+                <ul>
+                  {movieList.map((movie) => (
+                    <div
+                      key={movie.id}
+                      onClick={() => setSelectedMovie(movie)}
+                      className="cursor-pointer"
+                    >
+                      <MovieCard movie={movie} />
+                    </div>
+                  ))}
+                </ul>
+
+                {/* ── Load More ── */}
+                {hasMore && (
+                  <div className="flex justify-center mt-10">
+                    <button
+                      onClick={handleLoadMore}
+                      disabled={isLoadingMore}
+                      className="flex items-center gap-2 px-8 py-3 rounded-xl bg-[#AB8BFF] text-[#030014] font-semibold text-sm hover:bg-[#D6C7FF] transition disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {isLoadingMore ? (
+                        <>
+                          <span className="w-4 h-4 border-2 border-[#030014]/30 border-t-[#030014] rounded-full animate-spin" />
+                          Loading...
+                        </>
+                      ) : (
+                        "Load More"
+                      )}
+                    </button>
                   </div>
-                ))}
-              </ul>
+                )}
+              </>
             )}
           </section>
         </div>
