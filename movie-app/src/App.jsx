@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Search from "./components/Search";
 import MovieCard from "./components/MovieCard";
+import MovieModal from "./components/MovieModal";
 import { Component as Spinner } from "./components/Spinner";
 
 const API_BASE_URL = "https://api.themoviedb.org/3";
@@ -20,6 +21,7 @@ const App = () => {
   const [movieList, setMovieList] = useState([]);
   const [trendingMovies, setTrendingMovies] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedMovie, setSelectedMovie] = useState(null);
 
   // Fetch trending movies for the top section
   const fetchTrendingMovies = async () => {
@@ -130,13 +132,26 @@ const App = () => {
             ) : (
               <ul>
                 {movieList.map((movie) => (
-                  <MovieCard key={movie.id} movie={movie} />
+                  <div
+                    key={movie.id}
+                    onClick={() => setSelectedMovie(movie)}
+                    className="cursor-pointer"
+                  >
+                    <MovieCard movie={movie} />
+                  </div>
                 ))}
               </ul>
             )}
           </section>
         </div>
       </div>
+
+      {selectedMovie && (
+        <MovieModal
+          movie={selectedMovie}
+          onClose={() => setSelectedMovie(null)}
+        />
+      )}
     </main>
   );
 };
