@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import Search from "./components/Search";
 import MovieCard from "./components/MovieCard";
 import MovieModal from "./components/MovieModal";
+import GenreFilter from "./components/GenreFilter";
+import SortDropdown from "./components/SortDropdown";
 import { Component as Spinner } from "./components/Spinner";
 
 const API_BASE_URL = "https://api.themoviedb.org/3";
@@ -16,85 +18,116 @@ const API_OPTIONS = {
 };
 
 const App = () => {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
-  const [movieList, setMovieList] = useState([]);
+  const [searchTerm, setSearchTerm]       = useState("");
+  const [errorMessage, setErrorMessage]   = useState("");
+  const [movieList, setMovieList]         = useState([]);
   const [trendingMovies, setTrendingMovies] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [genres, setGenres]               = useState([]);
+  const [selectedGenre, setSelectedGenre] = useState(null);
+  const [sortBy, setSortBy]               = useState("popularity.desc");
+  const [isLoading, setIsLoading]         = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [selectedMovie, setSelectedMovie] = useState(null);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [page, setPage]                   = useState(1);
+  const [totalPages, setTotalPages]       = useState(1);
 
-  // Fetch trending movies for the top section
-  const fetchTrendingMovies = async () => {
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/trending/movie/week`,
-        API_OPTIONS
-      );
-      if (!response.ok) throw new Error("Failed to fetch trending movies");
-      const data = await response.json();
-      setTrendingMovies(data.results?.slice(0, 5) || []);
-    } catch (error) {
-      console.error("Error fetching trending movies:", error);
-    }
-  };
-
-  // Fetch a specific page — append = true means Load More, false = fresh fetch
-  const fetchMovies = useCallback(async (query = "", pageNum = 1, append = false) => {
-    append ? setIsLoadingMore(true) : setIsLoading(true);
-    setErrorMessage("");
-
-    try {
-      const endpoint = query
-        ? `${API_BASE_URL}/search/movie?query=${encodeURIComponent(query)}&page=${pageNum}`
-        : `${API_BASE_URL}/discover/movie?sort_by=popularity.desc&page=${pageNum}`;
-
-      const response = await fetch(endpoint, API_OPTIONS);
-      if (!response.ok) throw new Error("Failed to fetch movies");
-
-      const data = await response.json();
-
-      if (data.results?.length === 0 && !append) {
-        setErrorMessage("No movies found. Try a different search term.");
-        setMovieList([]);
-        return;
+  // ── Fetch genre list once ──────────────────────────────────────────────────
+  useEffect(() => {
+    const fetchGenres = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/genre/movie/list`, API_OPTIONS);
+        const data = await res.json();
+        setGenres(data.genres || []);
+      } catch (err) {
+        console.error("Error fetching genres:", err);
       }
-
-      // TMDB caps at 500 pages
-      setTotalPages(Math.min(data.total_pages, 500));
-      setMovieList((prev) => append ? [...prev, ...data.results] : data.results || []);
-    } catch (error) {
-      console.error("Error fetching movies:", error);
-      setErrorMessage("Failed to fetch movies. Please try again later.");
-    } finally {
-      setIsLoading(false);
-      setIsLoadingMore(false);
-    }
+    };
+    fetchGenres();
   }, []);
 
-  // When search term changes: reset to page 1 and do a fresh fetch
+  // ── Fetch trending once ────────────────────────────────────────────────────
   useEffect(() => {
-    const debounceTimer = setTimeout(() => {
+    const fetchTrending = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/trending/movie/week`, API_OPTIONS);
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        setTrendingMovies(data.results?.slice(0, 5) || []);
+      } catch {
+        console.error("Error fetching trending movies");
+      }
+    };
+    fetchTrending();
+  }, []);
+
+  // ── Core fetch ─────────────────────────────────────────────────────────────
+  // genre + sort only apply to /discover; search uses its own endpoint
+  const fetchMovies = useCallback(
+    async (query = "", pageNum = 1, append = false, genre = null, sort = "popularity.desc") => {
+      append ? setIsLoadingMore(true) : setIsLoading(true);
+      setErrorMessage("");
+
+      try {
+        let endpoint;
+        if (query) {
+          endpoint = `${API_BASE_URL}/search/movie?query=${encodeURIComponent(query)}&page=${pageNum}`;
+        } else {
+          const genreParam = genre ? `&with_genres=${genre}` : "";
+          endpoint = `${API_BASE_URL}/discover/movie?sort_by=${sort}&page=${pageNum}${genreParam}`;
+        }
+
+        const res = await fetch(endpoint, API_OPTIONS);
+        if (!res.ok) throw new Error("Failed to fetch movies");
+        const data = await res.json();
+
+        if (data.results?.length === 0 && !append) {
+          setErrorMessage("No movies found. Try a different search term.");
+          setMovieList([]);
+          return;
+        }
+
+        setTotalPages(Math.min(data.total_pages, 500));
+        setMovieList((prev) =>
+          append ? [...prev, ...data.results] : data.results || []
+        );
+      } catch (err) {
+        console.error("Error fetching movies:", err);
+        setErrorMessage("Failed to fetch movies. Please try again later.");
+      } finally {
+        setIsLoading(false);
+        setIsLoadingMore(false);
+      }
+    },
+    []
+  );
+
+  // ── Re-fetch when search / genre / sort changes ────────────────────────────
+  useEffect(() => {
+    const timer = setTimeout(() => {
       setPage(1);
-      fetchMovies(searchTerm, 1, false);
+      fetchMovies(searchTerm, 1, false, selectedGenre, sortBy);
     }, 500);
+    return () => clearTimeout(timer);
+  }, [searchTerm, selectedGenre, sortBy, fetchMovies]);
 
-    return () => clearTimeout(debounceTimer);
-  }, [searchTerm, fetchMovies]);
+  // ── Genre pill handler — reset page ───────────────────────────────────────
+  const handleGenreSelect = (genreId) => {
+    setSelectedGenre(genreId);
+    setPage(1);
+  };
 
-  // Load more handler — increments page and appends results
+  // ── Sort handler — reset page ──────────────────────────────────────────────
+  const handleSortChange = (value) => {
+    setSortBy(value);
+    setPage(1);
+  };
+
+  // ── Load more ──────────────────────────────────────────────────────────────
   const handleLoadMore = () => {
     const nextPage = page + 1;
     setPage(nextPage);
-    fetchMovies(searchTerm, nextPage, true);
+    fetchMovies(searchTerm, nextPage, true, selectedGenre, sortBy);
   };
-
-  // Trending only loads once
-  useEffect(() => {
-    fetchTrendingMovies();
-  }, []);
 
   const hasMore = page < totalPages;
 
@@ -102,6 +135,7 @@ const App = () => {
     <main>
       <div className="pattern">
         <div className="wrapper">
+
           {/* ── Hero ── */}
           <header>
             <img src="/hero.png" alt="Hero" />
@@ -136,7 +170,25 @@ const App = () => {
 
           {/* ── All / Search Results ── */}
           <section className="all-movies">
-            <h2>{searchTerm ? `Results for "${searchTerm}"` : "All Movies"}</h2>
+
+            {/* Section heading + sort (sort hidden during search) */}
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <h2>
+                {searchTerm ? `Results for "${searchTerm}"` : "All Movies"}
+              </h2>
+              {!searchTerm && (
+                <SortDropdown value={sortBy} onChange={handleSortChange} />
+              )}
+            </div>
+
+            {/* Genre pills (hidden during search) */}
+            {!searchTerm && genres.length > 0 && (
+              <GenreFilter
+                genres={genres}
+                selectedGenre={selectedGenre}
+                onSelect={handleGenreSelect}
+              />
+            )}
 
             {isLoading ? (
               <div className="flex justify-center py-16">
