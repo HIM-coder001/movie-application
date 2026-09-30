@@ -2,7 +2,7 @@
 
 A React application for discovering and exploring movies, powered by the [TMDB API](https://www.themoviedb.org/documentation/api).
 
-![MovieApp Hero](./public/hero.png)
+![MovieApp Hero](../movie-app/public/hero.png)
 
 ---
 
